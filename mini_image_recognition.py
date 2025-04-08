@@ -11,18 +11,6 @@ ids = pd.read_excel('./DataSetImagesIds.xlsx')
 def img_labels(img_name):
     return ids.loc[ids['Image ID'] == int(img_name.name.partition('.')[0])].get('Unit Name').values[0]
 
-print(imgs[1].name.partition('.')[0])
-
-pl1 = PILImage.create(imgs[1])
-
-print(pl1.shape)
-
-r = Resize(256,method='squish')
-
-print(r(pl1).shape)
-
-print(img_labels(imgs[1]))
-
 labels = []
 
 for i, p in enumerate(imgs):
@@ -31,7 +19,24 @@ for i, p in enumerate(imgs):
 
 labels = np.array(labels)
 
-print(labels)
+tts = TrainTestSplitter(test_size=.35, shuffle=True, stratify=labels, random_state=0)
+
+trn_set, tst_set = tts(imgs)
+
+trn_paths = imgs[trn_set]
+tst_paths  = imgs[tst_set]
+
+valid_split = .2
+seed = 0
+data_block = ImageBlock(cls=PILImage)
+target_block = CategoryBlock()
+
+img_db = DataBlock(blocks=(data_block,target_block),splitter=RandomSplitter(valid_pct=valid_split,seed=seed),
+                   get_y=img_labels,item_tfms=Resize(256,method='squish'))
+
+trn_vld_batch = img_db.dataloaders(trn_paths,batch_size=256)
+
+print(trn_vld_batch.valid_ds)
 
 #Ensure all images are at the same resolution
 
