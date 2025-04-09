@@ -19,7 +19,7 @@ for i, p in enumerate(imgs):
 
 labels = np.array(labels)
 
-tts = TrainTestSplitter(test_size=.35, shuffle=True, stratify=labels, random_state=0)
+tts = TrainTestSplitter(test_size=.25, shuffle=True, stratify=labels, random_state=0)
 
 trn_set, tst_set = tts(imgs)
 
