@@ -11,6 +11,7 @@ ids = pd.read_excel('./DataSetImagesIds.xlsx')
 def img_labels(img_name):
     return ids.loc[ids['Image ID'] == int(img_name.name.partition('.')[0])].get('Unit Name').values[0]
 
+#Get labels
 labels = []
 
 for i, p in enumerate(imgs):
@@ -19,26 +20,30 @@ for i, p in enumerate(imgs):
 
 labels = np.array(labels)
 
-tts = TrainTestSplitter(test_size=.25, shuffle=True, stratify=labels, random_state=0)
+#Split the images into testing and training
+tts = TrainTestSplitter(test_size=.20, shuffle=True, stratify=labels, random_state=0)
 
 trn_set, tst_set = tts(imgs)
 
 trn_paths = imgs[trn_set]
 tst_paths  = imgs[tst_set]
 
+#Ensure all images are at the same resolution and initiate DataBlock class
 valid_split = .2
 seed = 0
-data_block = ImageBlock(cls=PILImage)
+data_block = ImageBlock(cls=PILImageBW)
 target_block = CategoryBlock()
 
 img_db = DataBlock(blocks=(data_block,target_block),splitter=RandomSplitter(valid_pct=valid_split,seed=seed),
                    get_y=img_labels,item_tfms=Resize(256,method='squish'))
 
+#Train dataset
 trn_vld_batch = img_db.dataloaders(trn_paths,batch_size=256)
 
-print(trn_vld_batch.valid_ds)
+#Test dataset
+testing_set = trn_vld_batch.test_dl(tst_paths, with_labels=True)
 
-#Ensure all images are at the same resolution
+print(testing_set.dataset)
 
 #Run the images through wavelet transform to disect the image for specific characteristics
 
