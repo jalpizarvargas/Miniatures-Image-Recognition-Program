@@ -86,8 +86,8 @@ for name, layer in model.named_children():
 learn = Learner(trn_vld_dls, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
 learn.fit(5, lr=.01)
 
-tst_logprobs, tst_targets = learn.get_preds(dl=test_dl)
-tst_loss, tst_acc = learn.validate(dl=test_dl)
+tst_logprobs, tst_targets = learn.get_preds(dl=testing_set)
+tst_loss, tst_acc = learn.validate(dl=testing_set)
 tst_preds = tst_logprobs.argmax(axis=1)
 
 print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
