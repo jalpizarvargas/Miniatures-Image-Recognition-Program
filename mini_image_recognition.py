@@ -1,7 +1,10 @@
 import fastai
+import pywt
+import torch
 from fastai.vision.all import *
 import pandas as pd
 import numpy as np
+import matplotlib.image as img
 
 #Read Images and Tags, using supervised learning
 imgs = get_image_files('./DataSetImages')
@@ -35,18 +38,59 @@ data_block = ImageBlock(cls=PILImageBW)
 target_block = CategoryBlock()
 
 img_db = DataBlock(blocks=(data_block,target_block),splitter=RandomSplitter(valid_pct=valid_split,seed=seed),
-                   get_y=img_labels,item_tfms=Resize(256,method='squish'))
+                   get_y=img_labels,item_tfms=Resize(128,method='squish'),batch_tfms=aug_transforms())
 
 #Train dataset
-trn_vld_batch = img_db.dataloaders(trn_paths,batch_size=256)
+trn_vld_dls = img_db.dataloaders(trn_paths,batch_size=100,num_workers=0,shuffle=True)
 
 #Test dataset
-testing_set = trn_vld_batch.test_dl(tst_paths, with_labels=True)
+testing_set = trn_vld_dls.test_dl(tst_paths, with_labels=True)
 
-print(testing_set.dataset)
+#Run dataset through a convolutional neural net to compare with a wavelet scattering network
 
-#Run the images through wavelet transform to disect the image for specific characteristics
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#Run this images through a classification algorithm 
+cnn_layers = nn.Sequential(
+    nn.Conv2d(in_channels=1,out_channels=32,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+    nn.Conv2d(in_channels=32,out_channels=64,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+    nn.Conv2d(in_channels=64,out_channels=128,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+).to(device)
 
-#Determine performance metrics and analyze results
+fc_layers = nn.Sequential(
+    nn.Flatten(),
+    nn.Linear(in_features=128*14*14,out_features=128),
+    nn.ReLU(),
+    nn.Linear(in_features=128,out_features=26),
+    nn.LogSoftmax()
+).to(device)
+
+
+model = nn.Sequential(*cnn_layers,*fc_layers)
+
+nll_loss = BaseLoss(nn.NLLLoss)
+
+def decode_nllloss(x):
+    return x.argmax(axis=1)
+nll_loss.decodes = decode_nllloss
+
+for name, layer in model.named_children():
+    if hasattr(layer, 'reset_parameters'):
+        layer.reset_parameters()
+    
+learn = Learner(trn_vld_dls, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
+learn.fit(5, lr=.01)
+
+tst_logprobs, tst_targets = learn.get_preds(dl=test_dl)
+tst_loss, tst_acc = learn.validate(dl=test_dl)
+tst_preds = tst_logprobs.argmax(axis=1)
+
+print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
+
+#Wavelet scattering network
+
