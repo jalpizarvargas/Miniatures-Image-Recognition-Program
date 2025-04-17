@@ -7,6 +7,7 @@ import pywt
 from fastai.vision.all import *
 from PIL import Image, ImageOps
 from sklearn.model_selection import train_test_split
+import torch.utils as utils
 
 #Read Images and Tags, using supervised learning
 imgs = get_image_files('./DataSetImages')
@@ -25,9 +26,12 @@ for i, p in enumerate(imgs):
 
 labels = np.array(labels)
 
-image = PILImage.create(imgs[0])
-image = image.resize((256,256))
-image = ImageOps.grayscale(image)
+#Generate wavelets of the images and assign labels
+
+uniqueLabels = list(np.unique(labels))
+
+def label_func(name):
+    return uniqueLabels[name]
 
 imgsWavelets = []
 labelsWavelets = []
@@ -43,39 +47,87 @@ for i, l in enumerate(labels):
     cA,(cH,cV,cD) = c
 
     imgsWavelets.append(cA)
-    labelsWavelets.append(l)
+    labelsWavelets.append(uniqueLabels.index(l))
 
     imgsWavelets.append(cH)
-    labelsWavelets.append(l)
+    labelsWavelets.append(uniqueLabels.index(l))
 
     imgsWavelets.append(cV)
-    labelsWavelets.append(l)
+    labelsWavelets.append(uniqueLabels.index(l))
 
     imgsWavelets.append(cD)
-    labelsWavelets.append(l)
+    labelsWavelets.append(uniqueLabels.index(l))
 
 imgsWavelets = np.array(imgsWavelets)
 labelsWavelets = np.array(labelsWavelets)
 
-print('Total')
-print(len(imgsWavelets))
-print(len(labelsWavelets))
+#Split testing and training data
 
 imgsWavelets_train, imgsWavelets_test, labelsWavelets_train, labelsWavelets_test = train_test_split(imgsWavelets,labelsWavelets,test_size=0.2,shuffle=True,random_state=0)
 
-print('Test Set')
-print(np.unique(labelsWavelets_test).size)
-print(len(imgsWavelets_test))
-print(len(labelsWavelets_test))
+#Train set
 
-print('Train Set')
-print(len(imgsWavelets_train))
-print(len(labelsWavelets_train))
+x_train = Tensor(imgsWavelets_train)
+y_train = Tensor(labelsWavelets_train)
 
-valid_split = .2
-seed = 0
-data_block = ImageBlock(cls=PILImageBW)
-target_block = CategoryBlock()
+dataset_train = utils.data.TensorDataset(x_train,y_train)
 
-img_db = DataBlock(blocks=(data_block,target_block),splitter=RandomSplitter(valid_pct=valid_split,seed=seed))
+trn_data = utils.data.DataLoader(dataset_train,batch_size=300,shuffle=True)
+
+#Test set
+
+x_test = Tensor(imgsWavelets_test)
+y_test = Tensor(labelsWavelets_test)
+
+dataset_test = utils.data.TensorDataset(x_test,y_test)
+
+#Cnn
+
+tst_data = utils.data.DataLoader(dataset_test,shuffle=True)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+cnn_layers = nn.Sequential(
+    nn.Conv2d(in_channels=1,out_channels=32,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+    nn.Conv2d(in_channels=32,out_channels=64,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+    nn.Conv2d(in_channels=64,out_channels=128,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+    nn.Conv2d(in_channels=128,out_channels=256,kernel_size=3),
+    nn.ReLU(),
+    nn.MaxPool2d(kernel_size=2),
+).to(device)
+
+fc_layers = nn.Sequential(
+    nn.Flatten(),
+    nn.Linear(in_features=256*14*14,out_features=128),
+    nn.ReLU(),
+    nn.Linear(in_features=128,out_features=26),
+    nn.LogSoftmax()
+).to(device)
+
+model = nn.Sequential(*cnn_layers,*fc_layers)
+
+nll_loss = BaseLoss(nn.NLLLoss)
+
+def decode_nllloss(x):
+    return x.argmax(axis=1)
+nll_loss.decodes = decode_nllloss
+
+for name, layer in model.named_children():
+    if hasattr(layer, 'reset_parameters'):
+        layer.reset_parameters()
+    
+learn = Learner(trn_data, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
+learn.fit(5, lr=.01)
+
+tst_logprobs, tst_targets = learn.get_preds(dl=tst_data)
+tst_loss, tst_acc = learn.validate(dl=tst_data)
+tst_preds = tst_logprobs.argmax(axis=1)
+
+print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
 # %%
