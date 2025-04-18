@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 import pywt
 from fastai.vision.all import *
-from PIL import Image, ImageOps
+from PIL import ImageOps
 from sklearn.model_selection import train_test_split
 import torch.utils as utils
-from fastai.data.core import DataLoaders, DataLoader
+from fastai.data.core import DataLoaders
 
 #Read Images and Tags, using supervised learning
 imgs = get_image_files('./DataSetImages')
@@ -39,25 +39,29 @@ labelsWavelets = []
 
 resize = Resize(256,method='squish')
 
-for i, l in enumerate(labels):
-    image = PILImage.create(imgs[i])
-    image = resize(image)
-    image = ImageOps.grayscale(image)
+rotateDegrees = [-45,-90,-135,0]
 
-    c = pywt.dwt2(image,'db3',mode='periodization')
-    cA,(cH,cV,cD) = c
+for a in rotateDegrees:
+    for i, l in enumerate(labels):
+        image = PILImage.create(imgs[i])
+        image = resize(image)
+        image = ImageOps.grayscale(image)
+        image = image.rotate(a)
 
-    imgsWavelets.append(cA)
-    labelsWavelets.append(uniqueLabels.index(l))
+        c = pywt.dwt2(image,'db3',mode='periodization')
+        cA,(cH,cV,cD) = c
 
-    imgsWavelets.append(cH)
-    labelsWavelets.append(uniqueLabels.index(l))
+        imgsWavelets.append(cA)
+        labelsWavelets.append(uniqueLabels.index(l))
 
-    imgsWavelets.append(cV)
-    labelsWavelets.append(uniqueLabels.index(l))
+        imgsWavelets.append(cH)
+        labelsWavelets.append(uniqueLabels.index(l))
 
-    imgsWavelets.append(cD)
-    labelsWavelets.append(uniqueLabels.index(l))
+        imgsWavelets.append(cV)
+        labelsWavelets.append(uniqueLabels.index(l))
+
+        imgsWavelets.append(cD)
+        labelsWavelets.append(uniqueLabels.index(l))
 
 imgsWavelets = np.array(imgsWavelets)
 labelsWavelets = np.array(labelsWavelets)
@@ -70,29 +74,32 @@ imgsWavelets_train, imgsWavelets_test, labelsWavelets_train, labelsWavelets_test
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+#Split the valid dataset from the training data
+imgsWavelets_train, imgsWavelets_valid, labelsWavelets_train, labelsWavelets_valid = train_test_split(imgsWavelets_train,labelsWavelets_train,test_size=0.2,shuffle=True,random_state=0)
+
 x_train = torch.tensor(imgsWavelets_train, dtype=torch.float, device=device)
 y_train = torch.tensor(labelsWavelets_train, dtype=torch.long, device=device)
 
 dataset_train = utils.data.TensorDataset(x_train,y_train)
 
-trn_data =utils.data.DataLoader(dataset_train,batch_size=300,shuffle=True)
+trn_data =utils.data.DataLoader(dataset_train,batch_size=500,shuffle=True)
 
-#Test set
+#Valid set
 
-x_test = torch.tensor(imgsWavelets_test, dtype=torch.float, device=device)
-y_test = torch.tensor(labelsWavelets_test, dtype=torch.long, device=device)
+x_valid = torch.tensor(imgsWavelets_valid, dtype=torch.float, device=device)
+y_valid = torch.tensor(labelsWavelets_valid, dtype=torch.long, device=device)
 
-dataset_test = utils.data.TensorDataset(x_test,y_test)
+dataset_valid = utils.data.TensorDataset(x_valid,y_valid)
 
-tst_data = utils.data.DataLoader(dataset_test,shuffle=False)
+valid_data = utils.data.DataLoader(dataset_valid,shuffle=False)
 
-dls = DataLoaders(trn_data,tst_data)
+dls = DataLoaders(trn_data,valid_data)
 
 #CNN
 
-class Net(nn.Module):
+class Model(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
+        super(Model, self).__init__()
 
         self.layer1 = nn.Sequential(
             nn.Conv2d(in_channels=1,out_channels=32,kernel_size=3),
@@ -137,7 +144,9 @@ class Net(nn.Module):
         x = self.fc(x)
         return x
 
-model = Net()
+model = Model()
+
+#Train the model with fastai learner
 
 nll_loss = BaseLoss(nn.NLLLoss)
 
@@ -152,10 +161,24 @@ for name, layer in model.named_children():
     
 learn = Learner(dls, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
 learn.fit(5, lr=.01)
-#
-#tst_logprobs, tst_targets = learn.get_preds(dl=dls.valid_ds)
-#tst_loss, tst_acc = learn.validate(dl=dls.valid_ds)
-#tst_preds = tst_logprobs.argmax(axis=1)
-#
-#print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
+
+#Test set
+
+x_test = torch.tensor(imgsWavelets_test, dtype=torch.float, device=device)
+y_test = torch.tensor(labelsWavelets_test, dtype=torch.long, device=device)
+
+dataset_test = utils.data.TensorDataset(x_test,y_test)
+
+tst_data = utils.data.DataLoader(dataset_test,shuffle=False)
+
+dls_test = DataLoaders(tst_data)
+
+#Test the model
+
+#The train tensor of dls_test is the testing tensor since it only contains the tst_data dataloader
+tst_logprobs, tst_targets = learn.get_preds(dl=dls_test.train)
+tst_loss, tst_acc = learn.validate(dl=dls_test.train)
+tst_preds = tst_logprobs.argmax(axis=1)
+
+print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
 # %%

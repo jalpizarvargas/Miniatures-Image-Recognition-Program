@@ -73,6 +73,8 @@ fc_layers = nn.Sequential(
 
 model = nn.Sequential(*cnn_layers,*fc_layers)
 
+#Train the model with fastai learner
+
 nll_loss = BaseLoss(nn.NLLLoss)
 
 def decode_nllloss(x):
@@ -85,6 +87,8 @@ for name, layer in model.named_children():
     
 learn = Learner(trn_vld_dls, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
 learn.fit(5, lr=.01)
+
+#Test the model with the valid tensor
 
 tst_logprobs, tst_targets = learn.get_preds(dl=testing_set)
 tst_loss, tst_acc = learn.validate(dl=testing_set)
