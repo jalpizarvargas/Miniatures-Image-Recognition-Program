@@ -8,6 +8,7 @@ from fastai.vision.all import *
 from PIL import Image, ImageOps
 from sklearn.model_selection import train_test_split
 import torch.utils as utils
+from fastai.data.core import DataLoaders, DataLoader
 
 #Read Images and Tags, using supervised learning
 imgs = get_image_files('./DataSetImages')
@@ -67,67 +68,94 @@ imgsWavelets_train, imgsWavelets_test, labelsWavelets_train, labelsWavelets_test
 
 #Train set
 
-x_train = Tensor(imgsWavelets_train)
-y_train = Tensor(labelsWavelets_train)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+x_train = torch.tensor(imgsWavelets_train, dtype=torch.float, device=device)
+y_train = torch.tensor(labelsWavelets_train, dtype=torch.long, device=device)
 
 dataset_train = utils.data.TensorDataset(x_train,y_train)
 
-trn_data = utils.data.DataLoader(dataset_train,batch_size=300,shuffle=True)
+trn_data =utils.data.DataLoader(dataset_train,batch_size=300,shuffle=True)
 
 #Test set
 
-x_test = Tensor(imgsWavelets_test)
-y_test = Tensor(labelsWavelets_test)
+x_test = torch.tensor(imgsWavelets_test, dtype=torch.float, device=device)
+y_test = torch.tensor(labelsWavelets_test, dtype=torch.long, device=device)
 
 dataset_test = utils.data.TensorDataset(x_test,y_test)
 
-#Cnn
+tst_data = utils.data.DataLoader(dataset_test,shuffle=False)
 
-tst_data = utils.data.DataLoader(dataset_test,shuffle=True)
+dls = DataLoaders(trn_data,tst_data)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#CNN
 
-cnn_layers = nn.Sequential(
-    nn.Conv2d(in_channels=1,out_channels=32,kernel_size=3),
-    nn.ReLU(),
-    nn.MaxPool2d(kernel_size=2),
-    nn.Conv2d(in_channels=32,out_channels=64,kernel_size=3),
-    nn.ReLU(),
-    nn.MaxPool2d(kernel_size=2),
-    nn.Conv2d(in_channels=64,out_channels=128,kernel_size=3),
-    nn.ReLU(),
-    nn.MaxPool2d(kernel_size=2),
-    nn.Conv2d(in_channels=128,out_channels=256,kernel_size=3),
-    nn.ReLU(),
-    nn.MaxPool2d(kernel_size=2),
-).to(device)
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
 
-fc_layers = nn.Sequential(
-    nn.Flatten(),
-    nn.Linear(in_features=256*14*14,out_features=128),
-    nn.ReLU(),
-    nn.Linear(in_features=128,out_features=26),
-    nn.LogSoftmax()
-).to(device)
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(in_channels=1,out_channels=32,kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)
+        ).to(device)
 
-model = nn.Sequential(*cnn_layers,*fc_layers)
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(in_channels=32,out_channels=64,kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)
+        ).to(device)
+
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(in_channels=64,out_channels=128,kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)
+        ).to(device)
+
+        self.layer4 = nn.Sequential(
+            nn.Conv2d(in_channels=128,out_channels=256,kernel_size=3),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)
+        ).to(device)
+
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_features=256*6*6,out_features=128),
+            nn.ReLU(),
+            nn.Linear(in_features=128,out_features=26),
+            nn.LogSoftmax()
+        ).to(device)
+
+    def forward(self, x):
+        x = x.float()
+        x = x.unsqueeze(1)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = x.view(-1,256*6*6)
+        x = self.fc(x)
+        return x
+
+model = Net()
 
 nll_loss = BaseLoss(nn.NLLLoss)
 
 def decode_nllloss(x):
     return x.argmax(axis=1)
+
 nll_loss.decodes = decode_nllloss
 
 for name, layer in model.named_children():
     if hasattr(layer, 'reset_parameters'):
         layer.reset_parameters()
     
-learn = Learner(trn_data, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
+learn = Learner(dls, model, opt_func=Adam, loss_func=nll_loss, metrics=accuracy)
 learn.fit(5, lr=.01)
-
-tst_logprobs, tst_targets = learn.get_preds(dl=tst_data)
-tst_loss, tst_acc = learn.validate(dl=tst_data)
-tst_preds = tst_logprobs.argmax(axis=1)
-
-print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
+#
+#tst_logprobs, tst_targets = learn.get_preds(dl=dls.valid_ds)
+#tst_loss, tst_acc = learn.validate(dl=dls.valid_ds)
+#tst_preds = tst_logprobs.argmax(axis=1)
+#
+#print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
 # %%
