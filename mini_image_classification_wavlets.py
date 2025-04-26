@@ -176,9 +176,7 @@ dls_test = DataLoaders(tst_data)
 #Test the model
 
 #The train tensor of dls_test is the testing tensor since it only contains the tst_data dataloader
-tst_logprobs, tst_targets = learn.get_preds(dl=dls_test.train)
 tst_loss, tst_acc = learn.validate(dl=dls_test.train)
-tst_preds = tst_logprobs.argmax(axis=1)
 
 print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
 # %%

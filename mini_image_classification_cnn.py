@@ -90,8 +90,6 @@ learn.fit(5, lr=.01)
 
 #Test the model with the valid tensor
 
-tst_logprobs, tst_targets = learn.get_preds(dl=testing_set)
 tst_loss, tst_acc = learn.validate(dl=testing_set)
-tst_preds = tst_logprobs.argmax(axis=1)
 
 print("Test loss: {:.5f} accuracy: {:.5f}".format(tst_loss, tst_acc))
